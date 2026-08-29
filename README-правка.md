@@ -152,14 +152,33 @@ kubectl apply -f src/kubernetes/proxy-service.yaml
 ### Развертывание через CI/CD
 Проект включает GitHub Actions для CI/CD:
 
-- Сборка и тестирование: Автоматически собирает и тестирует код при пуше или пул-реквесте.
-- Сборка Docker и выгрузка: Создает Docker-образы и выгружает их в GitHub Container Registry.
+- Job `api-tests` поднимает систему в Docker Compose и запускает Postman-тесты.
+- Job `build-and-push` запускается только после успешных API-тестов и публикует образы `monolith`, `movies-service`, `events-service` и `proxy-service` в GHCR.
+- В pull request все Docker-образы собираются и отображаются в Checks, но публикация в GHCR выполняется только на доверенных `push`/`release` events.
+- При публикации образы получают тег ветки, immutable SHA-тег и `latest`, который используют Kubernetes-манифесты.
 
 Чтобы использовать пайплайн CI/CD:
 
 1. Создайте форк или клонируйте этот репозиторий в свой аккаунт GitHub.
 2. Отправьте изменения в основную ветку для запуска пайплайна CI/CD.
 3. Выполните ручное или автоматическое развертывание (Helm) в локальной среде.
+
+Для проверки Helm-чарта без доступа к вашим учётным данным сделайте GHCR-пакеты `monolith`, `movies-service`, `events-service` и `proxy-service` публичными. Публичный режим используется Helm-чартом по умолчанию.
+
+Если образы должны остаться приватными, создайте Kubernetes Secret из переменных окружения. PAT нельзя коммитить в Git:
+
+```bash
+kubectl create secret docker-registry dockerconfigjson \
+  --namespace cinemaabyss \
+  --docker-server ghcr.io \
+  --docker-username "$GHCR_USER" \
+  --docker-password "$GHCR_PAT" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+helm upgrade --install cinemaabyss ./src/kubernetes/helm \
+  --namespace cinemaabyss \
+  --set imagePullSecrets.existingSecret=dockerconfigjson
+```
 
 ## Тестирование API с Postman
 Проект включает комплексный набор тестов Postman, которые можно запускать из командной строки с помощью Newman. 

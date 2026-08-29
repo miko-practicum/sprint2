@@ -15,12 +15,12 @@ import (
 )
 
 type proxyConfig struct {
-	port                 string
-	monolithURL          string
-	moviesServiceURL     string
-	eventsServiceURL     string
-	gradualMigration     bool
-	moviesMigrationPcent int
+	port                   string
+	monolithURL            string
+	moviesServiceURL       string
+	eventsServiceURL       string
+	gradualMigration       bool
+	moviesMigrationPercent int
 }
 
 func main() {
@@ -41,12 +41,12 @@ func main() {
 
 func loadConfig() proxyConfig {
 	return proxyConfig{
-		port:                 env("PORT", "8000"),
-		monolithURL:          env("MONOLITH_URL", "http://localhost:8080"),
-		moviesServiceURL:     env("MOVIES_SERVICE_URL", "http://localhost:8081"),
-		eventsServiceURL:     env("EVENTS_SERVICE_URL", "http://localhost:8082"),
-		gradualMigration:     env("GRADUAL_MIGRATION", "true") == "true",
-		moviesMigrationPcent: mustAtoi(env("MOVIES_MIGRATION_PERCENT", "50")),
+		port:                   env("PORT", "8000"),
+		monolithURL:            env("MONOLITH_URL", "http://localhost:8080"),
+		moviesServiceURL:       env("MOVIES_SERVICE_URL", "http://localhost:8081"),
+		eventsServiceURL:       env("EVENTS_SERVICE_URL", "http://localhost:8082"),
+		gradualMigration:       env("GRADUAL_MIGRATION", "true") == "true",
+		moviesMigrationPercent: clampPercent(mustAtoi(env("MOVIES_MIGRATION_PERCENT", "50"))),
 	}
 }
 
@@ -57,10 +57,9 @@ func (c proxyConfig) moviesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	target := c.monolithURL
-	if c.gradualMigration && shouldRouteToMoviesService(c.moviesMigrationPcent) {
+	if c.gradualMigration && shouldRouteToMoviesService(c.moviesMigrationPercent) {
 		target = c.moviesServiceURL
 	}
-	log.Printf("proxy /api/movies -> %s", target)
 	proxyRequest(target, w, r)
 }
 
@@ -72,6 +71,16 @@ func shouldRouteToMoviesService(percent int) bool {
 		return true
 	}
 	return rand.Intn(100) < percent
+}
+
+func clampPercent(percent int) int {
+	if percent < 0 {
+		return 0
+	}
+	if percent > 100 {
+		return 100
+	}
+	return percent
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {

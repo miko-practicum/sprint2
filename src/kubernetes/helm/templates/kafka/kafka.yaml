@@ -89,6 +89,7 @@ spec:
             port: 2181
           initialDelaySeconds: 30
           periodSeconds: 15
+      {{- include "cinemaabyss.imagePullSecrets" . | nindent 6 }}
       {{- if .Values.zookeeper.persistence.enabled }}
       volumes:
       - name: zookeeper-data
@@ -193,6 +194,7 @@ spec:
             port: 9092
           initialDelaySeconds: 60
           periodSeconds: 20
+      {{- include "cinemaabyss.imagePullSecrets" . | nindent 6 }}
       {{- if .Values.kafka.persistence.enabled }}
       volumes:
       - name: kafka-data

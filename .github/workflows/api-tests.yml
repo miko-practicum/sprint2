@@ -1,71 +1,74 @@
 name: API Tests
 
 on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
+  workflow_call:
   workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Environment to run tests against'
-        required: true
-        default: 'docker'
-        type: choice
-        options:
-          - local
-          - docker
-      test_folder:
-        description: 'Test folder to run (leave empty for all)'
-        required: false
-        type: string
+
+permissions:
+  contents: read
 
 jobs:
   api-tests:
-    name: Run API Tests
+    name: Run Postman API tests
     runs-on: ubuntu-latest
-    
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v7
 
-      - name: Set up Docker Compose
-        run: |
-          docker compose --version
-      
-      - name: Start services with Docker Compose
-        run: |
-          docker compose up -d
-          # Wait for services to be ready
-          echo "Waiting for services to be ready..."
-          sleep 120
-      
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
-          cache: 'npm'
-          cache-dependency-path: tests/postman/package-lock.json
-      
-      - name: Install Newman and dependencies
-        working-directory: tests/postman
-        run: npm install
-      
-      - name: Run API tests
-        working-directory: tests/postman
-        run: |
+      - name: Start application
+        run: docker compose up --detach --build
 
-          docker compose up -d
-          # Wait for services to be ready
-          echo "Waiting for services to be ready..."
-          sleep 15
-          # Build the Docker image
-          docker build -t cinemaabyss-api-tests .
-          
-          # Run the tests in Docker
-          docker run --network=cinemaabyss-network -v "$(pwd)/reports:/app/reports" cinemaabyss-api-tests
-        
-      
-      - name: Stop services
+      - name: Wait for Kafka and HTTP services
+        shell: bash
+        run: |
+          kafka_ready=false
+          for attempt in {1..60}; do
+            if docker compose exec -T kafka /opt/kafka/bin/kafka-topics.sh \
+              --bootstrap-server localhost:9092 --list >/dev/null 2>&1; then
+              kafka_ready=true
+              break
+            fi
+            echo "Waiting for Kafka (attempt ${attempt}/60)..."
+            sleep 5
+          done
+
+          if [[ "${kafka_ready}" != "true" ]]; then
+            echo "Kafka did not become ready in time"
+            exit 1
+          fi
+
+          endpoints=(
+            "http://localhost:8080/health"
+            "http://localhost:8081/api/movies/health"
+            "http://localhost:8082/api/events/health"
+            "http://localhost:8000/health"
+          )
+
+          for endpoint in "${endpoints[@]}"; do
+            endpoint_ready=false
+            for attempt in {1..60}; do
+              if curl --fail --silent --show-error "${endpoint}" >/dev/null; then
+                endpoint_ready=true
+                break
+              fi
+              echo "Waiting for ${endpoint} (attempt ${attempt}/60)..."
+              sleep 5
+            done
+
+            if [[ "${endpoint_ready}" != "true" ]]; then
+              echo "${endpoint} did not become ready in time"
+              exit 1
+            fi
+          done
+
+      - name: Run Postman tests
+        run: bash tests/postman/run-tests.sh --docker --environment docker --reporters cli
+
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Stop application
         if: always()
-        run: docker compose down
+        run: docker compose down --volumes --remove-orphans

@@ -192,4 +192,60 @@ The chart mounts a Persistent Volume for PostgreSQL, Kafka, and Zookeeper. The v
 
 ## Image Pull Secrets
 
-The chart includes a secret for pulling images from private registries. The secret is created using the value provided in `imagePullSecrets.dockerconfigjson`.
+By default, the chart assumes that the GHCR images are public and does not add
+`imagePullSecrets` to Pods. Public GHCR container packages can be pulled by the
+reviewer without GitHub credentials.
+
+For the assignment review, open the `miko-practicum` account on GitHub, select
+**Packages**, and change the visibility of all four packages in **Package
+settings -> Danger Zone -> Change visibility**:
+
+- `sprint2/monolith`
+- `sprint2/movies-service`
+- `sprint2/events-service`
+- `sprint2/proxy-service`
+
+Choose **Public** for each package. GitHub documents that public Container
+registry packages support anonymous pulls and warns that this visibility change
+cannot be reverted to private. See [Configuring a package's access control and
+visibility](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility#configuring-visibility-of-packages-for-an-organization).
+
+For private images, the preferred option is to create the Kubernetes Secret
+before installing the chart:
+
+```bash
+kubectl create namespace cinemaabyss --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl create secret docker-registry dockerconfigjson \
+  --namespace cinemaabyss \
+  --docker-server ghcr.io \
+  --docker-username "$GHCR_USER" \
+  --docker-password "$GHCR_PAT"
+
+helm upgrade --install cinemaabyss ./src/kubernetes/helm \
+  --namespace cinemaabyss \
+  --set imagePullSecrets.existingSecret=dockerconfigjson
+```
+
+Alternatively, the chart can create the Secret from a base64-encoded Docker
+configuration supplied at install time. Never store the real value in Git:
+
+```bash
+helm upgrade --install cinemaabyss ./src/kubernetes/helm \
+  --namespace cinemaabyss \
+  --create-namespace \
+  --set imagePullSecrets.create=true \
+  --set-string imagePullSecrets.dockerconfigjson="$DOCKER_CONFIG_JSON_BASE64"
+```
+
+The supported values are:
+
+| Name | Description | Default |
+|------|-------------|---------|
+| `imagePullSecrets.create` | Create a registry Secret as part of the release | `false` |
+| `imagePullSecrets.name` | Name of the chart-managed Secret | `dockerconfigjson` |
+| `imagePullSecrets.existingSecret` | Name of an existing registry Secret | `""` |
+| `imagePullSecrets.dockerconfigjson` | Base64 Docker config used only when `create=true` | `""` |
+
+Use either `existingSecret` or `create`, not both. If both are set,
+`existingSecret` takes precedence and the chart does not create another Secret.
