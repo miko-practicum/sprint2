@@ -60,7 +60,7 @@ helm uninstall cinemaabyss
 | Name                           | Description                                     | Value           |
 |--------------------------------|-------------------------------------------------|-----------------|
 | `monolith.enabled`             | Enable monolith deployment                      | `true`          |
-| `monolith.image.repository`    | Monolith image repository                       | `ghcr.io/db-exp/cinemaabysstest/monolith` |
+| `monolith.image.repository`    | Monolith image repository                       | `ghcr.io/miko-practicum/sprint2/monolith` |
 | `monolith.image.tag`           | Monolith image tag                              | `latest`        |
 | `monolith.image.pullPolicy`    | Monolith image pull policy                      | `Always`        |
 | `monolith.replicas`            | Number of monolith replicas                     | `1`             |
@@ -77,7 +77,7 @@ helm uninstall cinemaabyss
 | Name                           | Description                                     | Value           |
 |--------------------------------|-------------------------------------------------|-----------------|
 | `proxyService.enabled`         | Enable proxy service deployment                 | `true`          |
-| `proxyService.image.repository`| Proxy service image repository                  | `ghcr.io/db-exp/cinemaabysstest/proxy-service` |
+| `proxyService.image.repository`| Proxy service image repository                  | `ghcr.io/miko-practicum/sprint2/proxy-service` |
 | `proxyService.image.tag`       | Proxy service image tag                         | `latest`        |
 | `proxyService.image.pullPolicy`| Proxy service image pull policy                 | `Always`        |
 | `proxyService.replicas`        | Number of proxy service replicas                | `1`             |
@@ -94,7 +94,7 @@ helm uninstall cinemaabyss
 | Name                           | Description                                     | Value           |
 |--------------------------------|-------------------------------------------------|-----------------|
 | `moviesService.enabled`        | Enable movies service deployment                | `true`          |
-| `moviesService.image.repository`| Movies service image repository                | `ghcr.io/db-exp/cinemaabysstest/movies-service` |
+| `moviesService.image.repository`| Movies service image repository                | `ghcr.io/miko-practicum/sprint2/movies-service` |
 | `moviesService.image.tag`      | Movies service image tag                        | `latest`        |
 | `moviesService.image.pullPolicy`| Movies service image pull policy               | `Always`        |
 | `moviesService.replicas`       | Number of movies service replicas               | `1`             |
@@ -111,7 +111,7 @@ helm uninstall cinemaabyss
 | Name                           | Description                                     | Value           |
 |--------------------------------|-------------------------------------------------|-----------------|
 | `eventsService.enabled`        | Enable events service deployment                | `true`          |
-| `eventsService.image.repository`| Events service image repository                | `ghcr.io/db-exp/cinemaabysstest/events-service` |
+| `eventsService.image.repository`| Events service image repository                | `ghcr.io/miko-practicum/sprint2/events-service` |
 | `eventsService.image.tag`      | Events service image tag                        | `latest`        |
 | `eventsService.image.pullPolicy`| Events service image pull policy               | `Always`        |
 | `eventsService.replicas`       | Number of events service replicas               | `1`             |
@@ -192,4 +192,60 @@ The chart mounts a Persistent Volume for PostgreSQL, Kafka, and Zookeeper. The v
 
 ## Image Pull Secrets
 
-The chart includes a secret for pulling images from private registries. The secret is created using the value provided in `imagePullSecrets.dockerconfigjson`.
+By default, the chart assumes that the GHCR images are public and does not add
+`imagePullSecrets` to Pods. Public GHCR container packages can be pulled by the
+reviewer without GitHub credentials.
+
+For the assignment review, open the `miko-practicum` account on GitHub, select
+**Packages**, and change the visibility of all four packages in **Package
+settings -> Danger Zone -> Change visibility**:
+
+- `sprint2/monolith`
+- `sprint2/movies-service`
+- `sprint2/events-service`
+- `sprint2/proxy-service`
+
+Choose **Public** for each package. GitHub documents that public Container
+registry packages support anonymous pulls and warns that this visibility change
+cannot be reverted to private. See [Configuring a package's access control and
+visibility](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility#configuring-visibility-of-packages-for-an-organization).
+
+For private images, the preferred option is to create the Kubernetes Secret
+before installing the chart:
+
+```bash
+kubectl create namespace cinemaabyss --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl create secret docker-registry dockerconfigjson \
+  --namespace cinemaabyss \
+  --docker-server ghcr.io \
+  --docker-username "$GHCR_USER" \
+  --docker-password "$GHCR_PAT"
+
+helm upgrade --install cinemaabyss ./src/kubernetes/helm \
+  --namespace cinemaabyss \
+  --set imagePullSecrets.existingSecret=dockerconfigjson
+```
+
+Alternatively, the chart can create the Secret from a base64-encoded Docker
+configuration supplied at install time. Never store the real value in Git:
+
+```bash
+helm upgrade --install cinemaabyss ./src/kubernetes/helm \
+  --namespace cinemaabyss \
+  --create-namespace \
+  --set imagePullSecrets.create=true \
+  --set-string imagePullSecrets.dockerconfigjson="$DOCKER_CONFIG_JSON_BASE64"
+```
+
+The supported values are:
+
+| Name | Description | Default |
+|------|-------------|---------|
+| `imagePullSecrets.create` | Create a registry Secret as part of the release | `false` |
+| `imagePullSecrets.name` | Name of the chart-managed Secret | `dockerconfigjson` |
+| `imagePullSecrets.existingSecret` | Name of an existing registry Secret | `""` |
+| `imagePullSecrets.dockerconfigjson` | Base64 Docker config used only when `create=true` | `""` |
+
+Use either `existingSecret` or `create`, not both. If both are set,
+`existingSecret` takes precedence and the chart does not create another Secret.

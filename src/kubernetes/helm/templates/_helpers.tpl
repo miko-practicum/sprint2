@@ -67,3 +67,19 @@ Return the namespace
 {{- define "cinemaabyss.namespace" -}}
 {{- default .Values.global.namespace .Release.Namespace }}
 {{- end }}
+
+{{- define "cinemaabyss.imagePullSecretName" -}}
+{{- if .Values.imagePullSecrets.existingSecret -}}
+{{- .Values.imagePullSecrets.existingSecret -}}
+{{- else if .Values.imagePullSecrets.create -}}
+{{- .Values.imagePullSecrets.name | default "dockerconfigjson" -}}
+{{- end -}}
+{{- end }}
+
+{{- define "cinemaabyss.imagePullSecrets" -}}
+{{- $secretName := include "cinemaabyss.imagePullSecretName" . -}}
+{{- if $secretName -}}
+imagePullSecrets:
+  - name: {{ $secretName | quote }}
+{{- end -}}
+{{- end }}
